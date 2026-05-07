@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>AQI Dashboard Pro</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body {
+    font-family: 'Segoe UI', sans-serif;
+    background: linear-gradient(135deg, #0f172a, #020617);
+    color: white;
+    margin: 0;
+}
+
+/* Layout */
+.container {
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+}
+
+/* Left panel */
+.form-box {
+    width: 30%;
+    background: #1e293b;
+    padding: 20px;
+    border-radius: 15px;
+}
+
+/* Right panel */
+.dashboard {
+    width: 70%;
+}
+
+/* Cards */
+.card {
+    background: #1e293b;
+    padding: 15px;
+    border-radius: 12px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+/* Stats row */
+.stats {
+    display: flex;
+    gap: 10px;
+}
+
+.stat-box {
+    flex: 1;
+    padding: 15px;
+    border-radius: 10px;
+    background: #334155;
+}
+
+/* Inputs */
+input {
+    width: 95%;
+    padding: 10px;
+    margin: 6px 0;
+    border-radius: 8px;
+    border: none;
+}
+
+/* Button */
+button {
+    width: 100%;
+    padding: 12px;
+    background: linear-gradient(45deg, #22c55e, #16a34a);
+    border: none;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: 0.3s;
+}
+
+button:hover {
+    transform: scale(1.05);
+}
+
+button:disabled {
+    background: gray;
+    cursor: not-allowed;
+}
+
+/* AQI colors */
+.good { color: #22c55e; }
+.moderate { color: #f59e0b; }
+.poor { color: #ef4444; }
+
+/* Loader */
+#loader {
+    display: none;
+    margin-top: 15px;
+}
+
+.spinner {
+    border: 6px solid #334155;
+    border-top: 6px solid #22c55e;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    margin: auto;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Fade animation */
+.fade-in {
+    animation: fadeIn 0.8s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px);}
+    to { opacity: 1; transform: translateY(0);}
+}
+
+/* Hint box */
+.hint-box {
+    background: #334155;
+    padding: 10px;
+    border-radius: 10px;
+    margin-bottom: 10px;
+    font-size: 14px;
+    text-align: left;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<!-- LEFT PANEL -->
+<div class="form-box">
+
+<h2>🌍 Input Data</h2>
+
+<div class="hint-box">
+    <h4>📊 Input Guide</h4>
+    <p>🌡 Temperature: 20–40°C</p>
+    <p>💧 Humidity: 30–80%</p>
+    <p>🌬 Wind: 0–20 km/h</p>
+    <p>🌫 Visibility: 1–10 km</p>
+</div>
+
+<form action="/predict" method="post" onsubmit="return validateForm() && showLoader()">
+
+<input name="T" type="number" placeholder="Temperature (°C) e.g. 25-40" min="0" max="50" required>
+<input name="TM" type="number" placeholder="Max Temp (°C) e.g. 30-45" min="0" max="55" required>
+<input name="Tm" type="number" placeholder="Min Temp (°C) e.g. 15-30" min="0" max="40" required>
+<input name="SLP" type="number" placeholder="Pressure (hPa) e.g. 980-1030" min="900" max="1100" required>
+<input name="H" type="number" placeholder="Humidity (%) e.g. 30-90" min="0" max="100" required>
+<input name="VV" type="number" placeholder="Visibility (km) e.g. 1-10" min="0" max="20" required>
+<input name="V" type="number" placeholder="Wind Speed (km/h) e.g. 0-20" min="0" max="100" required>
+<input name="VM" type="number" placeholder="Max Wind (km/h) e.g. 5-30" min="0" max="150" required>
+
+<button id="btn">Predict</button>
+
+</form>
+
+<!-- AUTO FILL BUTTON -->
+<button type="button" onclick="fillDemo()">Auto Fill Demo</button>
+
+<!-- LOADER -->
+<div id="loader">
+    <div class="spinner"></div>
+    <p>Processing...</p>
+</div>
+
+</div>
+
+<!-- RIGHT PANEL -->
+<div class="dashboard">
+
+{% if prediction %}
+
+<div class="card fade-in">
+<h2>PM2.5 = {{prediction}}</h2>
+
+{% if prediction <= 50 %}
+<p class="good">Good Air 😊</p>
+{% elif prediction <= 100 %}
+<p class="moderate">Moderate 😐</p>
+{% else %}
+<p class="poor">Poor 😷</p>
+{% endif %}
+</div>
+
+<div class="stats fade-in">
+
+<div class="stat-box">
+<h3>Last</h3>
+<p>{{history[-1]}}</p>
+</div>
+
+<div class="stat-box">
+<h3>Average</h3>
+<p>{{ (history | sum / history | length) | round(2) }}</p>
+</div>
+
+<div class="stat-box">
+<h3>Max</h3>
+<p>{{ history | max }}</p>
+</div>
+
+</div>
+
+<div class="card fade-in">
+<canvas id="aqiChart"></canvas>
+</div>
+
+<script>
+var historyData = {{ history | tojson | safe }};
+
+var labels = [];
+for (let i = 0; i < historyData.length; i++) {
+    labels.push("P" + (i+1));
+}
+
+new Chart(document.getElementById("aqiChart"), {
+    type: "line",
+    data: {
+        labels: labels,
+        datasets: [{
+            label: "PM2.5 Trend",
+            data: historyData,
+            borderWidth: 2,
+            tension: 0.4,
+            fill: true
+        }]
+    }
+});
+</script>
+
+{% endif %}
+
+</div>
+</div>
+
+<script>
+function showLoader() {
+    document.getElementById("loader").style.display = "block";
+
+    let btn = document.getElementById("btn");
+    btn.disabled = true;
+    btn.innerText = "Loading...";
+}
+
+function validateForm() {
+    let inputs = document.querySelectorAll("input");
+
+    for (let i = 0; i < inputs.length; i++) {
+        let val = parseFloat(inputs[i].value);
+
+        if (isNaN(val)) {
+            alert("Please enter valid numbers ❌");
+            return false;
+        }
+    }
+    return true;
+}
+
+function fillDemo() {
+    document.getElementsByName("T")[0].value = 30;
+    document.getElementsByName("TM")[0].value = 35;
+    document.getElementsByName("Tm")[0].value = 25;
+    document.getElementsByName("SLP")[0].value = 1010;
+    document.getElementsByName("H")[0].value = 60;
+    document.getElementsByName("VV")[0].value = 5;
+    document.getElementsByName("V")[0].value = 10;
+    document.getElementsByName("VM")[0].value = 15;
+}
+</script>
+
+</body>
+</html>
